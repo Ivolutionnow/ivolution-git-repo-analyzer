@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	"io/ioutil"
 
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/librarydetection/languages"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/librarydetection/languages"
 )
 
 var _ = Describe("GoLibraryDetection", func() {

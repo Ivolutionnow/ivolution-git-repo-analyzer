@@ -13,10 +13,10 @@ import (
 	"path/filepath"
 )
 
-// Upload result to Ivolution
+// Upload result to ivolution
 func Upload(path, repoName string) (string, error) {
 
-	url := "https://api.ivolution.ai/git-analyzer"
+	url := "https://grpcgateway.ivolution.ai/candidate/privaterepo/Upload"
 
 	// Read file
 	file, err := os.Open(path)
@@ -64,7 +64,7 @@ func Upload(path, repoName string) (string, error) {
 		return "", err
 	}
 
-	processURL := fmt.Sprintf("https://api.ivolution.ai/git-analyzer-verification?token=%s&git-repository-name=%s", result.Token, repoName)
+	processURL := fmt.Sprintf("https://profile.ivolution.ai/repo?token=%s&reponame=%s", result.Token, repoName)
 	return processURL, nil
 }
 

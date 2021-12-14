@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/extractor"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/extractor"
 )
 
 var _ = Describe("GetRepoName", func() {
@@ -14,9 +14,9 @@ var _ = Describe("GetRepoName", func() {
 			re := extractor.RepoExtractor{
 				Headless: true,
 			}
-			Expect(re.GetRepoName("git@github.com:Ivolutionnow/ivolution-git-repo-analyzer")).To(Equal("Ivolutionnow/ivolution-git-repo-analyzer"))
+			Expect(re.GetRepoName("git@github.com:Ivolutionnow/ivolution-git-repo-analyzer.git")).To(Equal("Ivolutionnow/ivolution-git-repo-analyzer"))
 			Expect(re.GetRepoName("https://github.com/Ivolutionnow/ivolution-git-repo-analyzer.git")).To(Equal("Ivolutionnow/ivolution-git-repo-analyzer"))
-			Expect(re.GetRepoName("https://github.com/Ivolutionnow/ivolution-git-repo-analyzer.git")).To(Equal("Ivolutionnow/ivolution-git-repo-analyzer"))
+			Expect(re.GetRepoName("https://github.com/chelovekula/second-project.git")).To(Equal("chelovekula/second-project"))
 			Expect(re.GetRepoName("ssh://user@host:port/group/repoName.git")).To(Equal("group/repoName"))
 		})
 	})

@@ -5,7 +5,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/librarydetection/languages"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/librarydetection/languages"
 )
 
 var _ = Describe("PerlLibraryDetection", func() {

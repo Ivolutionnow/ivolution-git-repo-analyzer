@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/text/language"
-	"golang.org/x/text/search"
 	"log"
 	"os"
 	"os/exec"
@@ -16,103 +14,82 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/commit"
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/emailsimilarity"
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/languagedetection"
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/librarydetection"
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/librarydetection/languages"
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/obfuscation"
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/ui"
+	"golang.org/x/net/context"
+	"golang.org/x/text/language"
+	"golang.org/x/text/search"
+
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/commit"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/emailsimilarity"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/languagedetection"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/librarydetection"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/librarydetection/languages"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/obfuscation"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/ui"
 	"github.com/mholt/archiver"
 )
 
 // RepoExtractor is responsible for all parts of repo extraction process
 // Including cloning the repo, processing the commits and uploading the results
 type RepoExtractor struct {
-	RepoPath            string
-	OutputPath          string
-	GitPath             string
-	Headless            bool
-	Obfuscate           bool
-	ShowProgressBar     bool // If it is false there is no progress bar.
-	SkipLibraries       bool // If it is false there is no library detection.
-	UserEmails          []string
-	OverwrittenRepoName string // If set this will be used instead of the
-	Seed                []string
-	repo                *repo
-	userCommits         []*commit.Commit // Commits which are belong to user (from selected emails)
+	RepoPath                   string
+	OutputPath                 string
+	GitPath                    string
+	Headless                   bool
+	Obfuscate                  bool
+	ShowProgressBar            bool // If it is false there is no progress bar.
+	SkipLibraries              bool // If it is false there is no library detection.
+	UserEmails                 []string
+	OverwrittenRepoName        string        // If set this will be used instead of the original repo name
+	TimeLimit                  time.Duration // If set the extraction will be stopped after the given time limit and the partial result will be uploaded
+	Seed                       []string
+	repo                       *repo
+	userCommits                []*commit.Commit // Commits which are belong to user (from selected emails)
+	commitPipeline             chan commit.Commit
+	libraryExtractionCompleted chan bool
 }
 
 // Extract a single repo in the path
 func (r *RepoExtractor) Extract() error {
+	var ctx context.Context
+	var cancel context.CancelFunc
 
-	r.initGit()
+	if r.TimeLimit.Seconds() != 0.0 {
+		ctx, cancel = context.WithTimeout(context.Background(), r.TimeLimit)
+		defer cancel()
+	} else {
+		ctx = context.Background()
+	}
 
 	err := r.initRepo()
 	if err != nil {
-		fmt.Println("Cannot init repo_info_extractor. Error: ", err.Error())
+		fmt.Println("Cannot init ivolution-git-repo-analyzer. Error: ", err.Error())
 		return err
 	}
 
 	// For library detection
 	r.initAnalyzers()
 
-	err = r.analyseCommits()
+	err = r.analyseCommits(ctx)
 	if err != nil {
 		return err
 	}
-
-	if !r.SkipLibraries {
-		err = r.analyseLibraries()
-		if err != nil {
-			return err
-		}
-	}
-
-	if r.Obfuscate {
-		r.obfuscate()
-	}
+	go r.analyseLibraries(ctx)
 
 	err = r.export()
 	if err != nil {
+		fmt.Println("Couldn't export commits to artifact. Error:", err.Error())
 		return err
 	}
 
-	// Only when user running this script locally
-	if !r.Headless {
-		err = r.upload()
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
-}
-
-func (r *RepoExtractor) initGit() {
-	// Git path already provided by user
-	if r.GitPath != "" {
-		return
-	}
-
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		defaultGitPath := "/usr/bin/git"
-		fmt.Printf("Couldn't find git path. Fall back to default (%s). Error: %s.\n", defaultGitPath, err.Error())
-		// Try default git path
-		r.GitPath = defaultGitPath
-		return
-	}
-	gitPath = strings.TrimRight(gitPath, "\r\n")
-	gitPath = strings.TrimRight(gitPath, "\n")
-
-	r.GitPath = gitPath
 }
 
 // Creates Repo struct
 func (r *RepoExtractor) initRepo() error {
 	fmt.Println("Initializing repository")
 
+	r.commitPipeline = make(chan commit.Commit)
+	r.libraryExtractionCompleted = make(chan bool)
 	cmd := exec.Command(r.GitPath,
 		"config",
 		"--get",
@@ -187,16 +164,17 @@ func (r *RepoExtractor) initAnalyzers() {
 	librarydetection.AddAnalyzer("Perl", languages.NewPerlAnalyzer())
 	librarydetection.AddAnalyzer("PHP", languages.NewPHPAnalyzer())
 	librarydetection.AddAnalyzer("Python", languages.NewPythonScriptAnalyzer())
+	librarydetection.AddAnalyzer("Ruby", languages.NewRubyScriptAnalyzer())
 	librarydetection.AddAnalyzer("Swift", languages.NewSwiftAnalyzer())
 }
 
 // Creates commits
-func (r *RepoExtractor) analyseCommits() error {
+func (r *RepoExtractor) analyseCommits(ctx context.Context) error {
 	fmt.Println("Analysing commits")
 
 	var commits []*commit.Commit
+	commits, err := r.getCommits(ctx)
 	userCommits := make([]*commit.Commit, 0, len(commits))
-	commits, err := r.getCommits()
 	if len(commits) == 0 {
 		return nil
 	}
@@ -242,7 +220,7 @@ func (r *RepoExtractor) analyseCommits() error {
 	return nil
 }
 
-func (r *RepoExtractor) getCommits() ([]*commit.Commit, error) {
+func (r *RepoExtractor) getCommits(ctx context.Context) ([]*commit.Commit, error) {
 	jobs := make(chan *req)
 	results := make(chan []*commit.Commit)
 	noMoreChan := make(chan bool)
@@ -294,6 +272,10 @@ func (r *RepoExtractor) getCommits() ([]*commit.Commit, error) {
 					close(jobs)
 					return
 				}
+			case <-ctx.Done():
+				fmt.Println("Time limit exceeded. Couldn't get all the commits.")
+				close(jobs)
+				return
 			}
 		}
 	}()
@@ -470,15 +452,17 @@ func (r *RepoExtractor) commitWorker(w int, jobs <-chan *req, results chan<- []*
 	return nil
 }
 
-// TODO This is not ready yet (can't find libraries based on language -> look at libraryWorker)
-func (r *RepoExtractor) analyseLibraries() error {
+func (r *RepoExtractor) analyseLibraries(ctx context.Context) {
 	fmt.Println("Analysing libraries")
+	defer func() {
+		r.libraryExtractionCompleted <- true
+	}()
 
 	jobs := make(chan *commit.Commit, len(r.userCommits))
 	results := make(chan bool, len(r.userCommits))
 	// Analyse libraries for every commit
 	for w := 1; w <= runtime.NumCPU(); w++ {
-		go r.libraryWorker(jobs, results)
+		go r.libraryWorker(ctx, jobs, results)
 	}
 	for _, v := range r.userCommits {
 		jobs <- v
@@ -495,17 +479,67 @@ func (r *RepoExtractor) analyseLibraries() error {
 		pb.Inc()
 	}
 	pb.Finish()
-	return nil
 }
 
-func (r *RepoExtractor) libraryWorker(commits <-chan *commit.Commit, results chan<- bool) error {
+func (r *RepoExtractor) getFileContent(commitHash, filePath string) ([]byte, error) {
+	cmd := exec.Command(r.GitPath,
+		"--no-pager",
+		"show",
+		fmt.Sprintf("%s:%s", commitHash, filePath),
+	)
+	cmd.Dir = r.RepoPath
+	var err error
+	fileContents, err := cmd.CombinedOutput()
+	if err != nil {
+		searchString1 := fmt.Sprintf("Path '%s' does not exist in '%s'", filePath, commitHash)
+		searchString2 := fmt.Sprintf("Path '%s' exists on disk, but not in '%s'", filePath, commitHash)
+		// Ignore case is needed because on windows error message starts with lowercase letter, in other systems it starts with uppercase letter
+		stringSearcher := search.New(language.English, search.IgnoreCase)
+		// means the file was deleted, skip
+		start, end := stringSearcher.IndexString(string(fileContents), searchString1)
+		if start != -1 && end != -1 {
+			return []byte{}, nil
+		}
+		start, end = stringSearcher.IndexString(string(fileContents), searchString2)
+		if start != -1 && end != -1 {
+			return []byte{}, nil
+		}
+		return nil, err
+	}
+
+	return fileContents, nil
+}
+
+func (r *RepoExtractor) libraryWorker(ctx context.Context, commits <-chan *commit.Commit, results chan<- bool) error {
 	languageAnalyzer := languagedetection.NewLanguageAnalyzer()
-	for commit := range commits {
+	hasTimeout := false
+	for commitToAnalyse := range commits {
+		c := commit.Commit{
+			ChangedFiles: commitToAnalyse.ChangedFiles,
+			Libraries:    make(map[string][]string),
+		}
+		c.Hash = commitToAnalyse.Hash
+		c.AuthorEmail = commitToAnalyse.AuthorEmail
+		c.AuthorName = commitToAnalyse.AuthorName
+		c.Date = commitToAnalyse.Date
 		libraries := map[string][]string{}
-		for n, fileChange := range commit.ChangedFiles {
+		for n, fileChange := range commitToAnalyse.ChangedFiles {
+			select {
+			case <-ctx.Done():
+				if !hasTimeout {
+					hasTimeout = true
+					fmt.Println("Time limit exceeded. Couldn't analyze all the commits.")
+				}
+				c.Libraries = libraries
+				r.commitPipeline <- c
+				results <- true
+				continue
+			default:
+			}
 
 			lang := ""
-			fileContents := make([]byte, 0)
+			var fileContents []byte
+			fileContents = nil
 
 			extension := filepath.Ext(fileChange.Path)
 			if extension == "" {
@@ -514,31 +548,14 @@ func (r *RepoExtractor) libraryWorker(commits <-chan *commit.Commit, results cha
 			// remove the trailing dot
 			extension = extension[1:]
 
-			cmd := exec.Command(r.GitPath,
-				"--no-pager",
-				"show",
-				fmt.Sprintf("%s:%s", commit.Hash, fileChange.Path),
-			)
-			cmd.Dir = r.RepoPath
-			var err error
-			fileContents, err = cmd.CombinedOutput()
-			if err != nil {
-				searchString1 := fmt.Sprintf("Path '%s' does not exist in '%s'", fileChange.Path, commit.Hash)
-				searchString2 := fmt.Sprintf("Path '%s' exists on disk, but not in '%s'", fileChange.Path, commit.Hash)
-				// Ignore case is needed because on windows error message starts with lowercase letter, in other systems it starts with uppercase letter
-				stringSearcher := search.New(language.English, search.IgnoreCase)
-				// means the file was deleted, skip
-				start, end := stringSearcher.IndexString(string(fileContents), searchString1)
-				if start != -1 && end != -1 {
-					continue
-				}
-				start, end = stringSearcher.IndexString(string(fileContents), searchString2)
-				if start != -1 && end != -1 {
-					continue
-				}
-				return err
-			}
 			if languageAnalyzer.ShouldUseFile(extension) {
+				var err error
+				if fileContents == nil {
+					fileContents, err = r.getFileContent(commitToAnalyse.Hash, fileChange.Path)
+					if err != nil {
+						continue
+					}
+				}
 				lang = languageAnalyzer.DetectLanguageFromFile(fileChange.Path, fileContents)
 			} else {
 				lang = languageAnalyzer.DetectLanguageFromExtension(extension)
@@ -548,38 +565,38 @@ func (r *RepoExtractor) libraryWorker(commits <-chan *commit.Commit, results cha
 			if lang == "" {
 				continue
 			}
-
-			commit.ChangedFiles[n].Language = lang
-			analyzer, err := librarydetection.GetAnalyzer(lang)
-			if err != nil {
-				continue
+			c.ChangedFiles[n].Language = lang
+			if !r.SkipLibraries {
+				analyzer, err := librarydetection.GetAnalyzer(lang)
+				if err != nil {
+					continue
+				}
+				if fileContents == nil {
+					fileContents, err = r.getFileContent(commitToAnalyse.Hash, fileChange.Path)
+					if err != nil {
+						continue
+					}
+				}
+				fileLibraries, err := analyzer.ExtractLibraries(string(fileContents))
+				if err != nil {
+					fmt.Printf("error extracting libraries for %s: %s \n", lang, err.Error())
+				}
+				if libraries[lang] == nil {
+					libraries[lang] = make([]string, 0)
+				}
+				libraries[lang] = append(libraries[lang], fileLibraries...)
 			}
-
-			fileLibraries, err := analyzer.ExtractLibraries(string(fileContents))
-			if err != nil {
-				fmt.Printf("error extracting libraries for %s: %s \n", lang, err.Error())
-			}
-			if libraries[lang] == nil {
-				libraries[lang] = make([]string, 0)
-			}
-			libraries[lang] = append(libraries[lang], fileLibraries...)
 		}
-		commit.Libraries = libraries
+		c.Libraries = libraries
+		r.commitPipeline <- c
 		results <- true
 	}
 	return nil
 }
 
-// Obfuscate the result
-func (r *RepoExtractor) obfuscate() {
-	for _, commit := range r.userCommits {
-		commit = obfuscation.Obfuscate(commit)
-	}
-}
-
 // Writes result to the file
 func (r *RepoExtractor) export() error {
-	fmt.Println("Creating output file")
+	fmt.Println("Creating artifact at: " + r.OutputPath)
 
 	repoDataPath := r.OutputPath + "_v2.json"
 	zipPath := r.OutputPath + "_v2.json.zip"
@@ -587,12 +604,11 @@ func (r *RepoExtractor) export() error {
 	os.Remove(repoDataPath)
 	os.Remove(zipPath)
 
-	// Only do this when not using default value
-	if r.OutputPath != "./repo_data_v2" {
-		err := os.MkdirAll(r.OutputPath, 0755)
-		if err != nil {
-			log.Println("Cannot create directory. Error:", err.Error())
-		}
+	// Create directory
+	directories := strings.Split(r.OutputPath, string(os.PathSeparator))
+	err := os.MkdirAll(strings.Join(directories[:len(directories)-1], string(os.PathSeparator)), 0755)
+	if err != nil {
+		log.Println("Cannot create directory. Error:", err.Error())
 	}
 
 	file, err := os.Create(repoDataPath)
@@ -610,19 +626,29 @@ func (r *RepoExtractor) export() error {
 	}
 	fmt.Fprintln(w, string(repoMetaData))
 
-	for _, commit := range r.userCommits {
-		commitData, err := json.Marshal(commit)
-		if err != nil {
-			fmt.Printf("Couldn't write commit to file. CommitHash: %s Error: %s", commit.Hash, err.Error())
-			continue
+loop:
+	for {
+		select {
+		case commit := <-r.commitPipeline:
+			if r.Obfuscate {
+				obfuscation.Obfuscate(&commit)
+			}
+			commitData, err := json.Marshal(commit)
+			if err != nil {
+				fmt.Printf("Couldn't write commit to file. CommitHash: %s Error: %s", commit.Hash, err.Error())
+				continue
+			}
+			fmt.Fprintln(w, string(commitData))
+		case <-r.libraryExtractionCompleted:
+			break loop
 		}
-		fmt.Fprintln(w, string(commitData))
 	}
 	w.Flush() // important
 	file.Close()
 
 	err = archiver.Archive([]string{repoDataPath}, zipPath)
 	if err != nil {
+		fmt.Println("Couldn't make zip archive of the artifact. Error:", err.Error())
 		return err
 	}
 
@@ -631,10 +657,10 @@ func (r *RepoExtractor) export() error {
 	return nil
 }
 
-// This is for repo_info_extractor used locally and for user to
+// This is for ivolution-git-repo-analyzer used locally and for user to
 // upload his/her results automatically to the ivolution
 func (r *RepoExtractor) upload() error {
-	fmt.Println("Uploading result to Ivolution")
+	fmt.Println("Uploading result to ivolution")
 	url, err := Upload(r.OutputPath+"_v2.json.zip", r.repo.RepoName)
 	if err != nil {
 		return err

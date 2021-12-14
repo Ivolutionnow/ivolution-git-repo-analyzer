@@ -3,7 +3,7 @@ package languages
 import (
 	"regexp"
 
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/librarydetection"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/librarydetection"
 )
 
 // NewJavaScriptAnalyzer constructor

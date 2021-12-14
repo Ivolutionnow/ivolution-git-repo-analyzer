@@ -1,7 +1,7 @@
 package languages
 
 import (
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/librarydetection"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/librarydetection"
 	"golang.org/x/net/html"
 	"strings"
 )

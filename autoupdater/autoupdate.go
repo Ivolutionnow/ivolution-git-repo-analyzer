@@ -36,7 +36,7 @@ func NewAutoUpdater(version string) autoUpdater {
 
 	return autoUpdater{
 		version:   version,
-		appName:   "repo_info_extractor" + osPostFix,
+		appName:   "ivolution-git-repo-analyzer" + osPostFix,
 		apiURL:    "https://api.github.com/repos/Ivolutionnow/ivolution-git-repo-analyzer/releases/latest",
 		osPostFix: osPostFix,
 	}

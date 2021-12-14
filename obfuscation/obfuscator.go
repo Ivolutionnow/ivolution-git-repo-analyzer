@@ -5,17 +5,16 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/commit"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/commit"
 )
 
 // Obfuscate private info, like filename, username and emails
-func Obfuscate(c *commit.Commit) *commit.Commit {
+func Obfuscate(c *commit.Commit) {
 	c.AuthorEmail = toMD5(c.AuthorEmail)
 	c.AuthorName = toMD5(c.AuthorName)
 	for _, filechange := range c.ChangedFiles {
 		filechange.Path = obfuscateFile(filechange.Path)
 	}
-	return c
 }
 
 func toMD5(text string) string {
