@@ -9,3 +9,4 @@ repo_data.json
 *.log
 repo_data_v2.json
 repo_data_v2.json.zip
+.env

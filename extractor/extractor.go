@@ -616,6 +616,26 @@ func (r *RepoExtractor) export() error {
 		return err
 	}
 
+	commits := make([]commit.Commit, 0)
+loop:
+	for {
+		select {
+		case commit := <-r.commitPipeline:
+			if r.Obfuscate {
+				obfuscation.Obfuscate(&commit)
+			}
+			commits = append(commits, commit)
+			//commitData, err := json.Marshal(commit)
+			if err != nil {
+				fmt.Printf("Couldn't write commit to file. CommitHash: %s Error: %s", commit.Hash, err.Error())
+				continue
+			}
+			//fmt.Fprintln(w, string(commitData))
+		case <-r.libraryExtractionCompleted:
+			break loop
+		}
+	}
+	r.repo.Commits = commits
 	w := bufio.NewWriter(file)
 	if r.OverwrittenRepoName != "" {
 		r.repo.RepoName = r.OverwrittenRepoName
@@ -626,23 +646,6 @@ func (r *RepoExtractor) export() error {
 	}
 	fmt.Fprintln(w, string(repoMetaData))
 
-loop:
-	for {
-		select {
-		case commit := <-r.commitPipeline:
-			if r.Obfuscate {
-				obfuscation.Obfuscate(&commit)
-			}
-			commitData, err := json.Marshal(commit)
-			if err != nil {
-				fmt.Printf("Couldn't write commit to file. CommitHash: %s Error: %s", commit.Hash, err.Error())
-				continue
-			}
-			fmt.Fprintln(w, string(commitData))
-		case <-r.libraryExtractionCompleted:
-			break loop
-		}
-	}
 	w.Flush() // important
 	file.Close()
 
@@ -670,9 +673,10 @@ func (r *RepoExtractor) upload() error {
 }
 
 type repo struct {
-	RepoName        string   `json:"repo"`
-	Emails          []string `json:"emails"`
-	SuggestedEmails []string `json:"suggestedEmails"`
+	RepoName        string          `json:"name"`
+	Emails          []string        `json:"emails"`
+	SuggestedEmails []string        `json:"suggestedEmails"`
+	Commits         []commit.Commit `json:"commits"`
 }
 
 type req struct {

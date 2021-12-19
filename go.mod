@@ -10,6 +10,7 @@ require (
 	github.com/golang/snappy v0.0.2 // indirect
 	github.com/iancoleman/orderedmap v0.2.0
 	github.com/jarcoal/httpmock v1.0.8
+	github.com/joho/godotenv v1.4.0
 	github.com/mholt/archiver v3.1.1+incompatible
 	github.com/nwaples/rardecode v1.1.0 // indirect
 	github.com/onsi/ginkgo v1.15.1

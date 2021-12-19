@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/utils"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -16,7 +17,7 @@ import (
 // Upload result to ivolution
 func Upload(path, repoName string) (string, error) {
 
-	url := "https://grpcgateway.ivolution.ai/candidate/privaterepo/Upload"
+	url := utils.GodotEnv("API_BACKEND")
 
 	// Read file
 	file, err := os.Open(path)

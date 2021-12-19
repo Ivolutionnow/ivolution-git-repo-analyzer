@@ -35,9 +35,9 @@ type artifactUploader struct {
 // NewArtifactUploader constructor
 func NewArtifactUploader(outputPath string) ArtifactUploader {
 	return &artifactUploader{
-		UploadRepoURL: "https://grpcgateway.ivolution.ai/candidate/privaterepo/Upload",
+		UploadRepoURL: "http://localhost:3000/repo",
 		//UploadRepoURL: "http://localhost:9900/candidate/privaterepo/Upload",
-		UploadResultURL: "https://grpcgateway.ivolution.ai/multi/repo/results",
+		UploadResultURL: "http://localhost:3000/repo",
 		//UploadResultURL: "http://localhost:9900/multi/repo/results",
 		ProcessURL: "https://profile.ivolution.ai/repo?multiToken=",
 		//ProcessURL: "http://localhost:8080/repo?multiToken=",
@@ -143,6 +143,8 @@ func (c *artifactUploader) uploadResults(results map[string]string) string {
 	defer resp.Body.Close()
 
 	body, _ := ioutil.ReadAll(resp.Body)
+
+	fmt.Printf("Response: %v", string(body))
 
 	var result CRUploadResult
 	err = json.Unmarshal(body, &result)
