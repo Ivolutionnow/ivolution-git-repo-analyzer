@@ -17,7 +17,7 @@ import (
 // Upload result to ivolution
 func Upload(path, repoName string) (string, error) {
 
-	url := utils.GodotEnv("API_BACKEND")
+	url := utils.GodotEnv("API_BACKEND") + "/repos/upload"
 
 	// Read file
 	file, err := os.Open(path)

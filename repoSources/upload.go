@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/utils"
 	"io"
 	"io/ioutil"
 	"log"
@@ -35,9 +36,9 @@ type artifactUploader struct {
 // NewArtifactUploader constructor
 func NewArtifactUploader(outputPath string) ArtifactUploader {
 	return &artifactUploader{
-		UploadRepoURL: "http://localhost:3000/repo",
+		UploadRepoURL: utils.GodotEnv("API_BACKEND") + "/repos/upload",
 		//UploadRepoURL: "http://localhost:9900/candidate/privaterepo/Upload",
-		UploadResultURL: "http://localhost:3000/repo",
+		UploadResultURL: utils.GodotEnv("API_BACKEND") + "/results",
 		//UploadResultURL: "http://localhost:9900/multi/repo/results",
 		ProcessURL: "https://profile.ivolution.ai/repo?multiToken=",
 		//ProcessURL: "http://localhost:8080/repo?multiToken=",
@@ -49,7 +50,7 @@ func (c *artifactUploader) UploadRepos(repos []*entities.Repository) {
 	uploadResults := make(map[string]string)
 	done := 1
 	for _, repo := range repos {
-		fmt.Printf("Uploading %s results (%d/%d)\n", repo.FullName, done, len(repos))
+		fmt.Printf("Uploading %s results (%d/%d)\n", repo.Name, done, len(repos))
 		uploadToken, err := c.uploadRepo(repo.GetSafeFullName())
 		if err != nil {
 			fmt.Printf("Couldn't upload, error: %s", err.Error())
@@ -140,11 +141,10 @@ func (c *artifactUploader) uploadResults(results map[string]string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	defer resp.Body.Close()
 
 	body, _ := ioutil.ReadAll(resp.Body)
-
-	fmt.Printf("Response: %v", string(body))
 
 	var result CRUploadResult
 	err = json.Unmarshal(body, &result)

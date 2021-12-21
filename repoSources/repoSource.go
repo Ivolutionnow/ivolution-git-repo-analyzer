@@ -2,10 +2,9 @@ package repoSource
 
 import (
 	"fmt"
-	"io/ioutil"
-
 	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/entities"
 	"github.com/Ivolutionnow/ivolution-git-repo-analyzer/v2/extractor"
+	"io/ioutil"
 )
 
 type ExtractConfig struct {
